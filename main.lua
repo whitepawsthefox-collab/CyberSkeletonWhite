@@ -1,12 +1,10 @@
 -- ===================================================================
--- CYBERSKELETON - SCRIPT UNIFICADO LOCAL (COMPATIBLE CON DELTA EXECUTOR)
+-- CYBERSKELETON - SCRIPT UNIFICADO LOCAL (FORZADO PARA DELTA / EXECUTORS)
 -- ===================================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -31,14 +29,6 @@ local CONFIG = {
 	VueloDuracion = 20,
 }
 
--- Definición de extremidades R15 para el montaje
-local definitions = {
-	{name="BrazoDerecho", body="RightUpperArm", attachment="RightShoulderRigAttachment", joint=CFrame.new(-0.297, 0.348, -0.0004)},
-	{name="BrazoIzquierdo", body="LeftUpperArm", attachment="LeftShoulderRigAttachment", joint=CFrame.new(0.297, 0.348, -0.0004)},
-	{name="PiernaDerecha", body="RightUpperLeg", attachment="RightHipRigAttachment", joint=CFrame.new(0.025, 0.717, 0.0055)},
-	{name="PiernaIzquierda", body="LeftUpperLeg", attachment="LeftHipRigAttachment", joint=CFrame.new(-0.025, 0.717, 0.0055)}
-}
-
 -- Estado del jugador
 local state = {
 	mode = "Idle",
@@ -58,8 +48,7 @@ local state = {
 local function getClock() return os.clock() end
 
 -- ===================================================================
--- CONSTRUCTOR PROCEDURAL DEL MODELO CYBERSKELETON
--- (Genera las partes biomecánicas sin necesidad de ServerStorage)
+-- GENERADOR PROCEDURAL DEL SUIT (ARMADURA Y VISUALES)
 -- ===================================================================
 local function createPieceModel(name)
 	local model = Instance.new("Model")
@@ -88,31 +77,46 @@ local function createPieceModel(name)
 end
 
 -- ===================================================================
--- SISTEMA DE MONTAJE Y ADAPTACIÓN AL AVATAR
+-- ADAPTACIÓN E INSTALACIÓN EN EL PERSONAJE (R15 Y R6)
 -- ===================================================================
 local function installCyberSkeleton(character)
-	if not character or character:FindFirstChild("CyberSkeletonEquipado") then return end
-
-	local humanoid = character:WaitForChild("Humanoid", 10)
-	local root = character:WaitForChild("HumanoidRootPart", 10)
-	if not humanoid or not root or humanoid.Health <= 0 then return end
-
-	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-		warn("CyberSkeleton: Diseñado principalmente para avatares R15.")
+	if not character then return end
+	if character:FindFirstChild("CyberSkeletonEquipado") then
+		character.CyberSkeletonEquipado:Destroy()
 	end
+
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	local root = character:WaitForChild("HumanoidRootPart", 5)
+
+	if not humanoid or not root then
+		warn("[CyberSkeleton] No se encontró el Humanoid o HumanoidRootPart.")
+		return
+	end
+
+	print("[CyberSkeleton] Instalando traje en el personaje...")
+
+	local isR15 = (humanoid.RigType == Enum.HumanoidRigType.R15)
+	
+	-- Definición de extremidades adaptables
+	local limbsToAttach = isR15 and {
+		{name="BrazoDerecho", body="RightUpperArm"},
+		{name="BrazoIzquierdo", body="LeftUpperArm"},
+		{name="PiernaDerecha", body="RightUpperLeg"},
+		{name="PiernaIzquierda", body="LeftUpperLeg"}
+	} or {
+		{name="BrazoDerecho", body="Right Arm"},
+		{name="BrazoIzquierdo", body="Left Arm"},
+		{name="PiernaDerecha", body="Right Leg"},
+		{name="PiernaIzquierda", body="Left Leg"}
+	}
 
 	local suit = Instance.new("Model")
 	suit.Name = "CyberSkeletonEquipado"
 
-	local lowestY = 0
-
-	for _, def in ipairs(definitions) do
-		local limb = character:WaitForChild(def.body, 5)
+	for _, def in ipairs(limbsToAttach) do
+		local limb = character:FindFirstChild(def.body)
 		if limb then
 			local model = createPieceModel(def.name)
-			local attachment = limb:FindFirstChild(def.attachment)
-			local attachmentCF = attachment and attachment.CFrame or def.joint
-
 			for _, part in ipairs(model:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
@@ -120,52 +124,29 @@ local function installCyberSkeleton(character)
 					part.CanTouch = false
 					part.CanQuery = false
 					part.Massless = true
-					part.CFrame = limb.CFrame * attachmentCF
+					part.CFrame = limb.CFrame
 
 					local weld = Instance.new("Weld")
 					weld.Name = "UnionCyber"
 					weld.Part0 = limb
 					weld.Part1 = part
-					weld.C0 = attachmentCF
+					weld.C0 = CFrame.new(0, 0, 0)
 					weld.C1 = CFrame.identity
 					weld.Parent = part
-
-					if string.find(def.name, "Pierna") then
-						lowestY = math.min(lowestY, -2.5)
-					end
 				end
 			end
 			model.Parent = suit
 		end
 	end
 
-	-- Soporte de colisión central
-	local distance = math.max(3, -lowestY)
-	local support = Instance.new("Part")
-	support.Name = "SoporteColision"
-	support.Size = Vector3.new(2, math.max(1, distance - 1), 2)
-	support.Transparency = 1
-	support.Anchored = false
-	support.Massless = true
-	support.CanCollide = true
-	support.CanTouch = false
-	support.CanQuery = false
-	support.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.25, 0, 100, 100)
-
-	local offset = CFrame.new(0, -distance + support.Size.Y / 2, 0)
-	support.CFrame = root.CFrame * offset
-
-	local weld = Instance.new("Weld")
-	weld.Part0, weld.Part1, weld.C0 = root, support, offset
-	weld.Parent = support
-	support.Parent = suit
-
-	-- Ocultar extremidades del avatar original
-	local hiddenParts = {
+	-- Ocultar extremidades originales
+	local hiddenParts = isR15 and {
 		LeftUpperArm=true, LeftLowerArm=true, LeftHand=true,
 		RightUpperArm=true, RightLowerArm=true, RightHand=true,
 		LeftUpperLeg=true, LeftLowerLeg=true, LeftFoot=true,
 		RightUpperLeg=true, RightLowerLeg=true, RightFoot=true,
+	} or {
+		["Right Arm"]=true, ["Left Arm"]=true, ["Right Leg"]=true, ["Left Leg"]=true
 	}
 
 	for _, part in ipairs(character:GetChildren()) do
@@ -175,8 +156,8 @@ local function installCyberSkeleton(character)
 		end
 	end
 
-	humanoid.HipHeight = math.max(0, distance - root.Size.Y / 2 + 0.15)
 	suit.Parent = character
+	print("[CyberSkeleton] ¡CyberSkeleton activado con éxito!")
 end
 
 -- ===================================================================
@@ -188,20 +169,6 @@ local function getRayParams(char)
 	p.FilterDescendantsInstances = {char}
 	p.RespectCanCollide = true
 	return p
-end
-
-local function footDistance(char)
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if not hum or not root then return 3 end
-	return hum.HipHeight + root.Size.Y / 2
-end
-
-local function getGroundPosition(char)
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if not root then return Vector3.zero end
-	local hit = workspace:Raycast(root.Position, Vector3.new(0, -600, 0), getRayParams(char))
-	return hit and hit.Position or root.Position - Vector3.new(0, footDistance(char), 0)
 end
 
 local function toggleVisibility(char, visible)
@@ -252,9 +219,8 @@ local function sweepMove(char, delta)
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not root then return nil end
 
-	local dist = footDistance(char)
-	local size = Vector3.new(2.5, math.max(2, dist + 1.5), 2.5)
-	local cf = root.CFrame * CFrame.new(0, (1.5 - dist) / 2, 0)
+	local size = Vector3.new(2.5, 4, 2.5)
+	local cf = root.CFrame
 	local hit = workspace:Blockcast(cf, size - Vector3.new(0.1, 0.1, 0.1), delta, getRayParams(char))
 	local travel = hit and (delta.Unit * math.max(0, hit.Distance - 0.12)) or delta
 
@@ -284,8 +250,7 @@ local function setCooldown(key, seconds)
 	state.cooldowns[key] = getClock() + seconds
 end
 
--- Efectos de área e impulso
-local function triggerAreaEffect(char, radius, actionType, damage)
+local function triggerAreaEffect(char, radius, actionType)
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
@@ -309,7 +274,7 @@ local function triggerAreaEffect(char, radius, actionType, damage)
 end
 
 -- ===================================================================
--- COMANDOS Y ACCIONES DE HABILIDADES
+-- ACCIONES DE HABILIDADES
 -- ===================================================================
 local actions = {}
 
@@ -318,6 +283,7 @@ function actions.Inject(char)
 	state.charges = state.charges - 1
 	addNeuralLoad(-CONFIG.Alivio)
 	setCooldown("Inject", 0.65)
+	print("[CyberSkeleton] Inyección usada. Carga neural reducida.")
 end
 
 function actions.Gravity(char)
@@ -334,6 +300,7 @@ function actions.Gravity(char)
 		local root = char:FindFirstChild("HumanoidRootPart")
 		state.height = root.Position.Y + CONFIG.AlturaGravity
 		state.hideAt = getClock() + 0.32
+		print("[CyberSkeleton] Modo Phase / Gravitacional activado.")
 	end
 end
 
@@ -341,11 +308,13 @@ function actions.Fly(char)
 	if state.mode == "Flight" then
 		finishMotion(char)
 		setCooldown("Fly", 4)
+		print("[CyberSkeleton] Vuelo desactivado.")
 		return
 	end
 	if state.mode ~= "Idle" or not isReady("Fly") then return end
 	if not addNeuralLoad(CONFIG.NeuralPorAtaque) then return end
 	startMotion(char, "Flight")
+	print("[CyberSkeleton] Modo Vuelo activado.")
 end
 
 function actions.Sandevistan(char)
@@ -359,6 +328,7 @@ function actions.Sandevistan(char)
 		state.sandeActive = true
 		state.sandeEnd = getClock() + CONFIG.SandeDuracion
 		setCooldown("Sandevistan", CONFIG.SandeDuracion + 7)
+		print("[CyberSkeleton] SANDEVISTAN ACTIVADO.")
 	end
 end
 
@@ -376,13 +346,15 @@ function actions.Dash(char)
 	if state.dashCharges == 0 then setCooldown("Dash", CONFIG.DashRecarga) end
 
 	sweepMove(char, dir.Unit * CONFIG.DashDistancia)
+	print("[CyberSkeleton] Dash realizado.")
 end
 
 function actions.Pulse(char)
 	if state.mode ~= "Idle" or not isReady("Pulse") then return end
 	if not addNeuralLoad(CONFIG.NeuralPorAtaque) then return end
 	setCooldown("Pulse", 7)
-	triggerAreaEffect(char, CONFIG.RadioPulse, "Pulse", 20)
+	triggerAreaEffect(char, CONFIG.RadioPulse, "Pulse")
+	print("[CyberSkeleton] Pulso realizado.")
 end
 
 function actions.Attraction(char)
@@ -391,6 +363,7 @@ function actions.Attraction(char)
 	setCooldown("Atraction", 9)
 	state.attractEnd = getClock() + 1.5
 	state.attractTick = 0
+	print("[CyberSkeleton] Atracción activada.")
 end
 
 function actions.Punch(char)
@@ -398,11 +371,11 @@ function actions.Punch(char)
 	if not addNeuralLoad(CONFIG.NeuralPorAtaque) then return end
 	setCooldown("Punch", 0.7)
 	state.handToggle = not state.handToggle
-	triggerAreaEffect(char, 16, "Punch", 18)
+	triggerAreaEffect(char, 16, "Punch")
 end
 
 -- ===================================================================
--- ASIGNACIÓN DE TECLAS Y CONTROLES (TECLADO)
+-- CONTROLES DE TECLADO
 -- ===================================================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
@@ -419,7 +392,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then actions.Punch(char) end
 end)
 
--- Captura de dirección de movimiento para vuelo/fase
 RunService.RenderStepped:Connect(function()
 	local moveDir = Vector3.zero
 	if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Vector3.new(0, 0, -1) end
@@ -436,7 +408,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ===================================================================
--- BUCLE PRINCIPAL DE ACTUALIZACIÓN (HEARTBEAT)
+-- BUCLE PRINCIPAL DE ACTUALIZACIÓN
 -- ===================================================================
 local passiveTimer = 0
 
@@ -450,7 +422,6 @@ RunService.Heartbeat:Connect(function(dt)
 
 	local now = getClock()
 
-	-- Carga neural pasiva
 	passiveTimer = passiveTimer + dt
 	if passiveTimer >= 1 then
 		local ticks = math.floor(passiveTimer)
@@ -458,24 +429,20 @@ RunService.Heartbeat:Connect(function(dt)
 		addNeuralLoad(CONFIG.NeuralPorSegundo * ticks)
 	end
 
-	-- Recarga de Dash
 	if state.dashCharges == 0 and isReady("Dash") then
 		state.dashCharges = CONFIG.DashCargas
 	end
 
-	-- Fin de Sandevistan
 	if state.sandeActive and now >= state.sandeEnd then
 		state.sandeActive = false
 		hum.WalkSpeed = state.oldWalk or 16
 	end
 
-	-- Atracción continua
 	if state.attractEnd and now < state.attractEnd and now >= state.attractTick then
 		state.attractTick = now + 0.2
-		triggerAreaEffect(char, 32, "Attraction", 0)
+		triggerAreaEffect(char, 32, "Attraction")
 	end
 
-	-- Bucle de Estados de Movimiento
 	local step = math.min(dt, 0.1)
 
 	if state.mode == "Phase" then
@@ -502,7 +469,7 @@ RunService.Heartbeat:Connect(function(dt)
 			finishMotion(char)
 			root.AssemblyLinearVelocity = Vector3.zero
 			setCooldown("Gravity", 5)
-			triggerAreaEffect(char, CONFIG.RadioGravity, "Gravity", 35)
+			triggerAreaEffect(char, CONFIG.RadioGravity, "Gravity")
 		elseif now - state.fallStart > 3 then
 			finishMotion(char)
 			setCooldown("Gravity", 5)
@@ -518,10 +485,10 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- ===================================================================
--- INICIALIZACIÓN
+-- EJECUCIÓN INMEDIATA
 -- ===================================================================
 if LocalPlayer.Character then
-	task.spawn(installCyberSkeleton, LocalPlayer.Character)
+	installCyberSkeleton(LocalPlayer.Character)
 end
 
 LocalPlayer.CharacterAdded:Connect(function(char)
